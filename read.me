@@ -26,3 +26,30 @@ python ingest.py
 
 Ouvre le chat :
 python chat.py
+
+
+
+
+LLAMA CPP : 
+
+pip install llama-cpp-python
+
+✅ 2. Adaptation dans chat.py
+
+Remplace :
+
+from llm_wrapper import CTransformersLLM
+...
+llm = CTransformersLLM(...)
+par :
+
+from llm_wrapper_cpp import LlamaCppLLM
+...
+llm = LlamaCppLLM(
+    model_path="models/mistral-7b-instruct-v0.1.Q4_K_M.gguf",
+    n_ctx=2048,
+    n_threads=4,
+    n_batch=8,
+    temperature=0.1,
+    max_tokens=512,
+)
