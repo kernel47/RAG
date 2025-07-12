@@ -1,6 +1,6 @@
 llama-index
-chromadb
 sentence-transformers
 typer[all]
 rich
 ctransformers
+faiss-cpu

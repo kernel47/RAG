@@ -1,25 +1,47 @@
 import typer
+from rich import print
 from llama_index.core import VectorStoreIndex, StorageContext, ServiceContext, load_index_from_storage
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llm_wrapper import CTransformersLLM
-from rich import print
+from llama_index.vector_stores.faiss import FaissVectorStore
+from llm_wrapper_cpp import LlamaCppLLM  # ou ton wrapper ctransformers si tu veux revenir en arrière
 
-DB_DIR = "db"
+DB_DIR = "db_faiss"
+FAISS_INDEX_PATH = f"{DB_DIR}/faiss.index"
+DOCSTORE_PATH = f"{DB_DIR}/docstore.json"
+
 app = typer.Typer()
 
 @app.command()
 def chat():
-    print("[bold cyan]💬 Assistant RAG Backup (offline) prêt[/bold cyan]")
-    print("[bold yellow]Tape 'exit' pour quitter[/bold yellow]\n")
+    print("[bold cyan]💬 Assistant RAG FAISS (offline)[/bold cyan]")
+    print("[yellow]Tape 'exit' pour quitter[/yellow]\n")
 
-    # Charger le LLM local via ctransformers
-    model_path = "models/mistral-7b-instruct-v0.1.Q4_K_M.gguf"  # adapte ce chemin selon ta config
-    llm = CTransformersLLM(model_path=model_path, temperature=0.1)
+    # LLM local
+    llm = LlamaCppLLM(
+        model_path="models/mistral-7b-instruct-v0.1.Q4_K_M.gguf",
+        n_ctx=2048,
+        n_threads=4,
+        n_batch=8,
+        temperature=0.1,
+        max_tokens=512,
+    )
 
+    # Embedding
     embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    storage_context = StorageContext.from_defaults(persist_dir=DB_DIR)
+
+    # Chargement de FAISS
+    vector_store = FaissVectorStore(
+        faiss_index_path=FAISS_INDEX_PATH,
+        docstore_path=DOCSTORE_PATH,
+    )
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
     service_context = ServiceContext.from_defaults(embed_model=embed_model, llm=llm)
-    index = load_index_from_storage(storage_context, service_context=service_context)
+
+    index = VectorStoreIndex.from_vector_store(
+        vector_store=vector_store,
+        storage_context=storage_context,
+        service_context=service_context,
+    )
 
     chat_engine = index.as_chat_engine(chat_mode="condense_question", verbose=False)
 
