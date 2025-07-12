@@ -1,9 +1,10 @@
 import typer
+import faiss
 from rich import print
-from llama_index.core import StorageContext, VectorStoreIndex, ServiceContext
+from llama_index.core import VectorStoreIndex, StorageContext, ServiceContext
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.faiss import FaissVectorStore
-from llm_wrapper_cpp import LlamaCppLLM
+from llm_wrapper_cpp import LlamaCppLLM  # ou ctransformers
 
 DB_DIR = "db_faiss"
 
@@ -11,7 +12,7 @@ app = typer.Typer()
 
 @app.command()
 def chat():
-    print("[bold cyan]💬 Assistant RAG FAISS prêt (offline)[/bold cyan]")
+    print("[bold cyan]💬 Assistant RAG avec FAISS prêt[/bold cyan]")
     print("[yellow]Tape 'exit' pour quitter[/yellow]\n")
 
     llm = LlamaCppLLM(
@@ -23,8 +24,11 @@ def chat():
         max_tokens=512,
     )
 
-    embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    vector_store = FaissVectorStore(persist_path=DB_DIR)
+    embed_model = HuggingFaceEmbedding(model_name="transformers/all-MiniLM-L6-v2")
+
+    # Chargement FAISS vector store
+    vector_store = FaissVectorStore.load_from_dir(DB_DIR)
+
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
     service_context = ServiceContext.from_defaults(embed_model=embed_model, llm=llm)
 
