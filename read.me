@@ -1,0 +1,28 @@
+rag-backup-assistant/
+├── data/                  # Fichiers à indexer (tu les ajoutes ici)
+│   ├── logs/
+│   ├── images/
+│   └── policies/
+├── db/                    # Persisted Chroma DB
+├── ingest.py
+├── chat.py
+├── config.yaml            # Pour options futures (langue, modèle, etc.)
+├── requirements.txt
+└── README.md
+
+
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull mistral
+
+
+🧪 Étapes d'exécution
+Installe les dépendances :
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+Lance l’indexation :
+python ingest.py
+
+Ouvre le chat :
+python chat.py

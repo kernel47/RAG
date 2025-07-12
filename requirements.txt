@@ -1,0 +1,5 @@
+llama-index
+chromadb
+sentence-transformers
+typer[all]
+rich
