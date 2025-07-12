@@ -1,5 +1,5 @@
 from ctransformers import AutoModelForCausalLM
-from llama_index.llms.base import LLM
+from llama_index.core.llms.base import LLM
 from typing import Optional, List, Mapping, Any
 
 class CTransformersLLM(LLM):
