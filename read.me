@@ -198,3 +198,102 @@ schedule_json = {
 import json
 print(json.dumps(parse_schedules(schedule_json), indent=2))
 
+-------------------------------------------------------------------------------------------
+
+
+
+
+from datetime import timedelta
+from collections import defaultdict
+
+DAYS = {1: "Sun", 2: "Mon", 3: "Tue", 4: "Wed", 5: "Thu", 6: "Fri", 7: "Sat"}
+
+def seconds_to_hhmm(sec):
+    h, m = divmod(sec // 60, 60)
+    return f"{h:02}:{m:02}"
+
+def build_weeks_from_startwindows(start_windows):
+    """Return dict week -> day -> list of start/end times (default week='every week')"""
+    weeks = defaultdict(lambda: defaultdict(list))
+    for w in start_windows:
+        day = DAYS.get(w["dayOfWeek"], f"Day{w['dayOfWeek']}")
+        start = seconds_to_hhmm(w["startSeconds"])
+        end = seconds_to_hhmm(w["startSeconds"] + w["durationSeconds"])
+        weeks["every week"][day].append({"startTime": start, "endTime": end})
+    return dict(weeks)
+
+def build_weeks_from_recurring(rec_list):
+    """Parse recurringDaysOfWeek like ['2:3'] -> week -> day -> empty list"""
+    weeks = defaultdict(lambda: defaultdict(list))
+    for d in rec_list:
+        day_num, week_num = map(int, d.split(":"))
+        day = DAYS.get(day_num, f"Day{day_num}")
+        week = f"week {week_num}" if week_num != 6 else "every week"
+        weeks[week][day]  # initialize empty list
+    return dict(weeks)
+
+def merge_include_exclude(include, exclude):
+    """Return merged dict after removing excluded days"""
+    total = {}
+    for week, days in include.items():
+        total[week] = {}
+        for day, times in days.items():
+            if week in exclude and day in exclude[week]:
+                continue
+            total[week][day] = times
+    return total
+
+def simplify_schedule_item(schedule):
+    # Include
+    include = build_weeks_from_startwindows(schedule.get("startWindow", []))
+    include_rec = build_weeks_from_recurring(schedule.get("includeDates", {}).get("recurringDaysOfWeek", []))
+    # merge recurring empty entries with actual start windows
+    for w, days in include_rec.items():
+        include.setdefault(w, {}).update(days)
+
+    # Exclude
+    exclude = build_weeks_from_recurring(schedule.get("excludeDates", {}).get("recurringDaysOfWeek", []))
+
+    # Total
+    total = merge_include_exclude(include, exclude)
+
+    # Human-readable resume
+    human_parts = []
+    for w, days in include.items():
+        for d, times in days.items():
+            if times:
+                human_parts.append(f"Include {w} {d}: " + ", ".join([f"{t['startTime']}-{t['endTime']}" for t in times]))
+            else:
+                human_parts.append(f"Include {w} {d}")
+    for w, days in exclude.items():
+        for d in days.keys():
+            human_parts.append(f"Exclude {w} {d}")
+
+    return {
+        "scheduleName": schedule.get("scheduleName"),
+        "include": include,
+        "exclude": exclude,
+        "total": total,
+        "resume": " | ".join(human_parts)
+    }
+
+def simplify_schedules(schedule_json):
+    return [simplify_schedule_item(s) for s in schedule_json.get("schedules", [])]
+
+# ==== Example ====
+schedule_json = {
+    "schedules": [
+        {
+            "scheduleName": "TestSchedule",
+            "startWindow": [
+                {"dayOfWeek": 1, "startSeconds": 14600, "durationSeconds": 24600},
+                {"dayOfWeek": 2, "startSeconds": 14600, "durationSeconds": 24600}
+            ],
+            "includeDates": {"recurringDaysOfWeek": ["2:3", "3:4"]},
+            "excludeDates": {"recurringDaysOfWeek": ["4:6", "2:5"]}
+        }
+    ]
+}
+
+import json
+print(json.dumps(simplify_schedules(schedule_json), indent=2))
