@@ -55,3 +55,207 @@ llm = LlamaCppLLM(
     temperature=0.1,
     max_tokens=512,
 )
+
+
+
+import json
+
+DAY_MAP = {
+    1: "Sunday",
+    2: "Monday",
+    3: "Tuesday",
+    4: "Wednesday",
+    5: "Thursday",
+    6: "Friday",
+    7: "Saturday",
+}
+
+WEEK_MAP = {
+    1: "First week of the month",
+    2: "Second week of the month",
+    3: "Third week of the month",
+    4: "Fourth week of the month",
+    5: "Fifth week of the month",
+    6: "Every week"
+}
+
+def seconds_to_hhmm(seconds):
+    hours, remainder = divmod(seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}"
+
+def parse_recurring_days(recurring):
+    weeks = {}
+    for item in recurring.split():
+        day, week = item.split(":")
+        day = int(day)
+        week = int(week)
+        weeks.setdefault(week, []).append(day)
+    return weeks
+
+def interpret_week_pattern(day, weeks):
+    """Return a human-friendly interpretation of the week pattern"""
+    if weeks == [6]:
+        return f"Every {DAY_MAP[day]}"
+    if set(weeks) == {1, 3, 5}:
+        return f"Every other {DAY_MAP[day]}"
+    if set(weeks) in [{4}, {5}, {4, 5}]:
+        return f"{DAY_MAP[day]} at the end of the month"
+    return ", ".join(WEEK_MAP.get(w, f'Week {w}') for w in weeks)
+
+def simplify_schedule(schedule_json):
+    result = {}
+    
+    # --- Parse recurring days ---
+    weeks_info = parse_recurring_days(schedule_json.get("recurringDaysOfWeek", ""))
+    # Inverse mapping: day -> list of weeks
+    day_to_weeks = {}
+    for week, days in weeks_info.items():
+        for d in days:
+            day_to_weeks.setdefault(d, []).append(week)
+    
+    result["weeks"] = {}
+    for week, days in sorted(weeks_info.items()):
+        week_text = WEEK_MAP.get(week, f"Week {week}")
+        result["weeks"][week_text] = [DAY_MAP[d] for d in sorted(days)]
+    
+    # --- Parse start windows ---
+    result["windows"] = []
+    for w in schedule_json.get("startWindow", []):
+        result["windows"].append({
+            "day": DAY_MAP.get(w["day"], w["day"]),
+            "start": seconds_to_hhmm(w["startSeconds"]),
+            "end": seconds_to_hhmm(w["startSeconds"] + w["durationSeconds"]),
+            "duration_hours": w["durationSeconds"] // 3600
+        })
+    
+    # --- Human-friendly phrase ---
+    phrases = []
+    for day, weeks in day_to_weeks.items():
+        windows = [w for w in result["windows"] if w["day"] == DAY_MAP[day]]
+        human_weeks = interpret_week_pattern(day, sorted(weeks))
+        if windows:
+            for win in windows:
+                phrases.append(
+                    f"{human_weeks}: {win['start']} → {win['end']} ({win['duration_hours']}h)"
+                )
+        else:
+            phrases.append(f"{human_weeks}: No backup window defined")
+    
+    result["phrase"] = " ; ".join(phrases) if phrases else "No backup scheduled."
+    
+    return result
+
+# ==== Example usage ====
+schedule = {
+    "recurringDaysOfWeek": "1:1 1:3 1:5 2:6 5:4",
+    "startWindow": [
+        {"day": 1, "startSeconds": 3600, "durationSeconds": 7200},   # 01:00 → 03:00
+        {"day": 2, "startSeconds": 7200, "durationSeconds": 14400},  # 02:00 → 06:00
+        {"day": 5, "startSeconds": 82800, "durationSeconds": 3600},  # 23:00 → 00:00
+    ]
+}
+
+print(json.dumps(simplify_schedule(schedule), indent=2, ensure_ascii=False))
+
+
+
+import json
+
+DAY_MAP = {
+    1: "Dimanche",
+    2: "Lundi",
+    3: "Mardi",
+    4: "Mercredi",
+    5: "Jeudi",
+    6: "Vendredi",
+    7: "Samedi",
+}
+
+WEEK_MAP = {
+    1: "Première semaine du mois",
+    2: "Deuxième semaine du mois",
+    3: "Troisième semaine du mois",
+    4: "Quatrième semaine du mois",
+    5: "Cinquième semaine du mois",
+    6: "Toutes les semaines"
+}
+
+def seconds_to_hhmm(seconds):
+    hours, remainder = divmod(seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}"
+
+def parse_recurring_days(recurring):
+    weeks = {}
+    for item in recurring.split():
+        day, week = item.split(":")
+        day = int(day)
+        week = int(week)
+        weeks.setdefault(week, []).append(day)
+    return weeks
+
+def interpret_week_pattern(day, weeks):
+    """Retourne une interprétation humaine des semaines"""
+    if weeks == [6]:
+        return f"Tous les {DAY_MAP[day]}s"
+    if set(weeks) == {1, 3, 5}:
+        return f"Un {DAY_MAP[day]} sur deux"
+    if set(weeks) in [{4}, {5}, {4, 5}]:
+        return f"{DAY_MAP[day]} de fin de mois"
+    return ", ".join(WEEK_MAP.get(w, f'Semaine {w}') for w in weeks)
+
+def simplify_schedule(schedule_json):
+    result = {}
+    
+    # --- Parsing des jours/semaine ---
+    weeks_info = parse_recurring_days(schedule_json.get("recurringDaysOfWeek", ""))
+    # Inverse mapping : jour -> liste semaines
+    day_to_weeks = {}
+    for week, days in weeks_info.items():
+        for d in days:
+            day_to_weeks.setdefault(d, []).append(week)
+    
+    result["weeks"] = {}
+    for week, days in sorted(weeks_info.items()):
+        week_text = WEEK_MAP.get(week, f"Semaine {week}")
+        result["weeks"][week_text] = [DAY_MAP[d] for d in sorted(days)]
+    
+    # --- Parsing des fenêtres ---
+    result["windows"] = []
+    for w in schedule_json.get("startWindow", []):
+        result["windows"].append({
+            "day": DAY_MAP.get(w["day"], w["day"]),
+            "start": seconds_to_hhmm(w["startSeconds"]),
+            "end": seconds_to_hhmm(w["startSeconds"] + w["durationSeconds"]),
+            "duration_hours": w["durationSeconds"] // 3600
+        })
+    
+    # --- Phrase lisible intelligente ---
+    phrases = []
+    for day, weeks in day_to_weeks.items():
+        windows = [w for w in result["windows"] if w["day"] == DAY_MAP[day]]
+        human_weeks = interpret_week_pattern(day, sorted(weeks))
+        if windows:
+            for win in windows:
+                phrases.append(
+                    f"{human_weeks} : {win['start']} → {win['end']} ({win['duration_hours']}h)"
+                )
+        else:
+            phrases.append(f"{human_weeks} : Pas de fenêtre définie")
+    
+    result["phrase"] = " ; ".join(phrases) if phrases else "Aucun backup planifié."
+    
+    return result
+
+# ==== Exemple d’utilisation ====
+schedule = {
+    "recurringDaysOfWeek": "1:1 1:3 1:5 2:6 5:4",
+    "startWindow": [
+        {"day": 1, "startSeconds": 3600, "durationSeconds": 7200},   # 01h00 → 03h00
+        {"day": 2, "startSeconds": 7200, "durationSeconds": 14400},  # 02h00 → 06h00
+        {"day": 5, "startSeconds": 82800, "durationSeconds": 3600},  # 23h00 → 00h00
+    ]
+}
+
+print(json.dumps(simplify_schedule(schedule), indent=2, ensure_ascii=False))
