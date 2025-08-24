@@ -168,3 +168,185 @@ print(json.dumps(result, indent=2))
 
 import json
 print(json.dumps(simplify_schedules(schedule_json), indent=2))
+
+
+
+
+
+--------------------
+
+
+
+import requests
+from datetime import datetime
+
+# Liste de masters NetBackup
+MASTERS = [
+    {"url": "https://master1.domain.com:1556/netbackup", "user": "admin", "password": "pass"},
+    {"url": "https://master2.domain.com:1556/netbackup", "user": "admin", "password": "pass"},
+]
+
+def login(master):
+    url = f"{master['url']}/login"
+    r = requests.post(url, json={"userName": master["user"], "password": master["password"]}, verify=False)
+    r.raise_for_status()
+    return r.json()["token"]
+
+def search_files(master, token, query, start_date=None, end_date=None):
+    url = f"{master['url']}/catalog/images/files"
+
+    params = {
+        "pageSize": 100,
+        "filePath": f"*{query}*"
+    }
+    if start_date:
+        params["startTime"] = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if end_date:
+        params["endTime"] = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    results = []
+    while url:
+        r = requests.get(url, headers=headers, params=params, verify=False)
+        r.raise_for_status()
+        data = r.json()
+
+        for f in data.get("files", []):
+            results.append({
+                "fileName": f.get("fileName"),
+                "path": f.get("path"),
+                "backupTime": f.get("backupTime"),
+                "client": f.get("clientName"),
+                "policy": f.get("policyName"),
+                "storage": f.get("storageUnit"),
+                "master": master["url"]
+            })
+
+        url = data.get("nextPage")
+
+    return results
+
+
+def global_search(query, start_date=None, end_date=None):
+    all_results = []
+    for master in MASTERS:
+        try:
+            token = login(master)
+            results = search_files(master, token, query, start_date, end_date)
+            all_results.extend(results)
+        except Exception as e:
+            print(f"Error with {master['url']}: {e}")
+    return all_results
+
+
+if __name__ == "__main__":
+    # Exemple : chercher "toto" entre 2023-01-01 et 2023-12-31
+    start = datetime(2023, 1, 1)
+    end = datetime(2023, 12, 31)
+    results = global_search("toto", start, end)
+
+    for r in results:
+        print(f"[{r['master']}] {r['backupTime']} - {r['client']} - {r['path']}/{r['fileName']} (Policy={r['policy']}, Storage={r['storage']})")
+
+
+
+
+
+-----------------------
+
+
+
+
+input {
+  kafka {
+    bootstrap_servers => "kafka1:9092,kafka2:9092"
+    topics => ["netbackup-logs"]
+    group_id => "logstash-netbackup"
+    codec => "json"
+  }
+}
+
+filter {
+  # On s'assure que @tenant et @type existent
+  if ![ @tenant ] {
+    mutate { add_field => { "[@tenant]" => "default-tenant" } }
+  }
+  if ![ @type ] {
+    mutate { add_field => { "[@type]" => "unknown" } }
+  }
+
+  # Création d'un champ index_name dynamique
+  mutate {
+    add_field => {
+      "[@metadata][index_name]" => "%{[@tenant]}-%{[@type]}"
+    }
+  }
+
+  # Exemple: ajouter des champs supplémentaires selon le type
+  if [@type] == "backup" {
+    mutate { add_field => { "category" => "backup-files" } }
+  } else if [@type] == "job" {
+    mutate { add_field => { "category" => "backup-jobs" } }
+  } else if [@type] == "image" {
+    mutate { add_field => { "category" => "backup-images" } }
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["https://es-cluster:9200"]
+    user => "logstash_user"
+    password => "secret"
+    index => "%{[@metadata][index_name]}-%{+YYYY.MM.dd}"
+    ssl => true
+    cacert => "/etc/logstash/certs/ca.crt"
+  }
+
+  # Optionnel: log local pour debug
+  stdout { codec => rubydebug }
+}
+
+
+
+from confluent_kafka import Producer
+import json
+from datetime import datetime
+
+KAFKA_BOOTSTRAP = "kafka1:9092,kafka2:9092"
+TOPIC = "netbackup-logs"
+
+producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP})
+
+def send_log(data: dict):
+    """
+    Envoie un log JSON vers Kafka.
+    data doit contenir au minimum @tenant et @type
+    """
+    if "@tenant" not in data:
+        data["@tenant"] = "default-tenant"
+    if "@type" not in data:
+        data["@type"] = "unknown"
+
+    # Ajouter timestamp UTC si pas présent
+    if "@timestamp" not in data:
+        data["@timestamp"] = datetime.utcnow().isoformat()
+
+    producer.produce(
+        topic=TOPIC,
+        value=json.dumps(data).encode("utf-8"),
+        callback=lambda err, msg: print("✅ Sent" if err is None else f"❌ Failed {err}")
+    )
+    producer.flush()
+
+# Exemple
+if __name__ == "__main__":
+    events = [
+        {"@tenant": "customerA", "@type": "backup", "client": "srv01", "file": "/drive/folder/toto.txt"},
+        {"@tenant": "customerA", "@type": "job", "jobId": 1234, "status": "COMPLETED"},
+        {"@tenant": "customerA", "@type": "image", "imageId": 5678, "sizeMB": 1024},
+    ]
+
+    for e in events:
+        send_log(e)
+
