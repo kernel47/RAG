@@ -59,241 +59,112 @@ llm = LlamaCppLLM(
 
 
 
-from datetime import timedelta
-
-DAYS = {1: "Sunday", 2: "Monday", 3: "Tuesday", 4: "Wednesday",
-        5: "Thursday", 6: "Friday", 7: "Saturday"}
-
-WEEKS = {1: "first week", 2: "second week", 3: "third week",
-         4: "fourth week", 5: "fifth week", 6: "every week"}
-
-
-def seconds_to_hhmm(seconds):
-    """Convert seconds since midnight to HH:MM"""
-    t = timedelta(seconds=seconds)
-    h, remainder = divmod(t.seconds, 3600)
-    m, _ = divmod(remainder, 60)
-    return f"{h:02}:{m:02}"
-
-
-def parse_start_window(start_windows):
-    windows = []
-    human = []
-    for w in start_windows:
-        day = DAYS.get(w["dayOfWeek"], f"Day{w['dayOfWeek']}")
-        start = seconds_to_hhmm(w["startSeconds"])
-        end_seconds = w["startSeconds"] + w["durationSeconds"]
-        end = seconds_to_hhmm(end_seconds % 86400)
-        windows.append({"day": day, "start": start, "end": end})
-        human.append(f"{day} {start}-{end}")
-    return windows, human
-
-
-def parse_recurring_days_of_week(days_list):
-    """Parse list like ['2:3', '3:4'] -> readable"""
-    result = []
-    for d in days_list:
-        day, week = map(int, d.split(":"))
-        day_name = DAYS.get(day, f"Day{day}")
-        week_name = WEEKS.get(week, f"week {week}")
-        result.append({"day": day_name, "week": week_name})
-    return result
-
-
-def simplify_schedule(schedule_item):
-    output = {
-        "scheduleName": schedule_item.get("scheduleName"),
-        "backupType": schedule_item.get("backupType"),
-        "include": {},
-        "exclude": {},
-        "startWindow": [],
-        "human_text": ""
-    }
-
-    human_parts = []
-
-    # --- IncludeDates ---
-    include = schedule_item.get("includeDates", {})
-    inc = {}
-    if include.get("lastDayOfMonth"):
-        inc["lastDayOfMonth"] = True
-        human_parts.append("Include: last day of month")
-    if include.get("recurringDaysOfWeek"):
-        inc["recurringDaysOfWeek"] = parse_recurring_days_of_week(include["recurringDaysOfWeek"])
-        human_parts.append(
-            "Include: recurring days of week " +
-            ", ".join([f"{x['day']} ({x['week']})" for x in inc["recurringDaysOfWeek"]])
-        )
-    if include.get("recurringDaysOfMonth"):
-        inc["recurringDaysOfMonth"] = include["recurringDaysOfMonth"]
-        human_parts.append(f"Include: recurring days of month {inc['recurringDaysOfMonth']}")
-    if include.get("specificDates"):
-        inc["specificDates"] = include["specificDates"]
-        human_parts.append(f"Include: specific dates {', '.join(inc['specificDates'])}")
-    output["include"] = inc
-
-    # --- ExcludeDates ---
-    exclude = schedule_item.get("excludeDates", {})
-    exc = {}
-    if exclude.get("lastDayOfMonth"):
-        exc["lastDayOfMonth"] = True
-        human_parts.append("Exclude: last day of month")
-    if exclude.get("recurringDaysOfWeek"):
-        exc["recurringDaysOfWeek"] = parse_recurring_days_of_week(exclude["recurringDaysOfWeek"])
-        human_parts.append(
-            "Exclude: recurring days of week " +
-            ", ".join([f"{x['day']} ({x['week']})" for x in exc["recurringDaysOfWeek"]])
-        )
-    if exclude.get("recurringDaysOfMonth"):
-        exc["recurringDaysOfMonth"] = exclude["recurringDaysOfMonth"]
-        human_parts.append(f"Exclude: recurring days of month {exc['recurringDaysOfMonth']}")
-    if exclude.get("specificDates"):
-        exc["specificDates"] = exclude["specificDates"]
-        human_parts.append(f"Exclude: specific dates {', '.join(exc['specificDates'])}")
-    output["exclude"] = exc
-
-    # --- StartWindow ---
-    if "startWindow" in schedule_item:
-        windows, human_windows = parse_start_window(schedule_item["startWindow"])
-        output["startWindow"] = windows
-        human_parts.append("Start windows: " + ", ".join(human_windows))
-
-    # --- Human text ---
-    output["human_text"] = " | ".join(human_parts)
-
-    return output
-
-
-def parse_schedules(schedule_json):
-    schedules = schedule_json.get("schedules", [])
-    return [simplify_schedule(item) for item in schedules]
-
-
-# ==== Example usage ====
-schedule_json = {
-    "schedules": [
-        {
-            "scheduleName": "TestSchedule",
-            "backupType": "Full Backup",
-            "includeDates": {
-                "lastDayOfMonth": True,
-                "recurringDaysOfWeek": ["2:3", "3:4"],
-                "recurringDaysOfMonth": [10, 13],
-                "specificDates": ["2018-12-31"]
-            },
-            "excludeDates": {
-                "lastDayOfMonth": True,
-                "recurringDaysOfWeek": ["4:6", "2:5"],
-                "recurringDaysOfMonth": [10],
-                "specificDates": ["2018-1-1", "2018-2-30"]
-            },
-            "startWindow": [
-                {"dayOfWeek": 1, "startSeconds": 14600, "durationSeconds": 24600},
-                {"dayOfWeek": 2, "startSeconds": 14600, "durationSeconds": 24600}
-            ]
-        }
-    ]
-}
 
 import json
-print(json.dumps(parse_schedules(schedule_json), indent=2))
 
--------------------------------------------------------------------------------------------
-
-
-
-
-from datetime import timedelta
-from collections import defaultdict
-
-DAYS = {1: "Sun", 2: "Mon", 3: "Tue", 4: "Wed", 5: "Thu", 6: "Fri", 7: "Sat"}
-
-def seconds_to_hhmm(sec):
-    h, m = divmod(sec // 60, 60)
-    return f"{h:02}:{m:02}"
-
-def build_weeks_from_startwindows(start_windows):
-    """Return dict week -> day -> list of start/end times (default week='every week')"""
-    weeks = defaultdict(lambda: defaultdict(list))
-    for w in start_windows:
-        day = DAYS.get(w["dayOfWeek"], f"Day{w['dayOfWeek']}")
-        start = seconds_to_hhmm(w["startSeconds"])
-        end = seconds_to_hhmm(w["startSeconds"] + w["durationSeconds"])
-        weeks["every week"][day].append({"startTime": start, "endTime": end})
-    return dict(weeks)
-
-def build_weeks_from_recurring(rec_list):
-    """Parse recurringDaysOfWeek like ['2:3'] -> week -> day -> empty list"""
-    weeks = defaultdict(lambda: defaultdict(list))
-    for d in rec_list:
-        day_num, week_num = map(int, d.split(":"))
-        day = DAYS.get(day_num, f"Day{day_num}")
-        week = f"week {week_num}" if week_num != 6 else "every week"
-        weeks[week][day]  # initialize empty list
-    return dict(weeks)
-
-def merge_include_exclude(include, exclude):
-    """Return merged dict after removing excluded days"""
-    total = {}
-    for week, days in include.items():
-        total[week] = {}
-        for day, times in days.items():
-            if week in exclude and day in exclude[week]:
-                continue
-            total[week][day] = times
-    return total
-
-def simplify_schedule_item(schedule):
-    # Include
-    include = build_weeks_from_startwindows(schedule.get("startWindow", []))
-    include_rec = build_weeks_from_recurring(schedule.get("includeDates", {}).get("recurringDaysOfWeek", []))
-    # merge recurring empty entries with actual start windows
-    for w, days in include_rec.items():
-        include.setdefault(w, {}).update(days)
-
-    # Exclude
-    exclude = build_weeks_from_recurring(schedule.get("excludeDates", {}).get("recurringDaysOfWeek", []))
-
-    # Total
-    total = merge_include_exclude(include, exclude)
-
-    # Human-readable resume
-    human_parts = []
-    for w, days in include.items():
-        for d, times in days.items():
-            if times:
-                human_parts.append(f"Include {w} {d}: " + ", ".join([f"{t['startTime']}-{t['endTime']}" for t in times]))
-            else:
-                human_parts.append(f"Include {w} {d}")
-    for w, days in exclude.items():
-        for d in days.keys():
-            human_parts.append(f"Exclude {w} {d}")
-
-    return {
-        "scheduleName": schedule.get("scheduleName"),
-        "include": include,
-        "exclude": exclude,
-        "total": total,
-        "resume": " | ".join(human_parts)
-    }
-
-def simplify_schedules(schedule_json):
-    return [simplify_schedule_item(s) for s in schedule_json.get("schedules", [])]
-
-# ==== Example ====
-schedule_json = {
-    "schedules": [
-        {
-            "scheduleName": "TestSchedule",
-            "startWindow": [
-                {"dayOfWeek": 1, "startSeconds": 14600, "durationSeconds": 24600},
-                {"dayOfWeek": 2, "startSeconds": 14600, "durationSeconds": 24600}
-            ],
-            "includeDates": {"recurringDaysOfWeek": ["2:3", "3:4"]},
-            "excludeDates": {"recurringDaysOfWeek": ["4:6", "2:5"]}
-        }
-    ]
+# Mapping utile des jours (selon NetBackup, 1 = Monday... 7 = Sunday)
+DAYS_MAP = {
+    1: "Monday", 2: "Tuesday", 3: "Wednesday",
+    4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"
 }
+
+def parse_recurring_days(recs, is_week=True):
+    """Convert '1:6' to 'Monday at 6h' if is_week, else just 'Day X'."""
+    parsed = []
+    for r in recs:
+        if is_week and ':' in r:
+            day, hour = r.split(':')
+            parsed.append(f"{DAYS_MAP.get(int(day), 'Day '+day)} at {hour}h")
+        else:
+            parsed.append(r)
+    return parsed
+
+def simplify_schedules(schedules):
+    simplified = []
+    summaries = []
+
+    for sched in schedules:
+        name = sched.get("scheduleName", "<unnamed>")
+        btype = sched.get("backupType", "Unknown")
+        freq_days = sched.get("frequencySeconds", 0) // 86400 if sched.get("frequencySeconds") else None
+
+        # Retention & Storage
+        copies = sched.get("backupCopies", {}).get("copies", [])
+        if copies:
+            cp = copies[0]
+            retention = f"{cp['retentionPeriod']['value']} {cp['retentionPeriod']['unit']}"
+            storage = cp.get("storage", "Unknown")
+        else:
+            retention = storage = None
+
+        # Windows
+        windows = []
+        for w in sched.get("startWindow", []):
+            dur_h = w["durationSeconds"] // 3600
+            if dur_h > 0:
+                windows.append({
+                    "dayName": DAYS_MAP.get(w["dayOfWeek"], f"Day {w['dayOfWeek']}"),
+                    "startHour": w["startSeconds"] // 3600,
+                    "durationHours": dur_h
+                })
+
+        # Include Dates (recurring week/month)
+        inc = sched.get("includeDates", {})
+        inc_days = parse_recurring_days(inc.get("recurringDaysOfWeek", []), is_week=True)
+        inc_month = parse_recurring_days(inc.get("recurringDaysOfMonth", []), is_week=False)
+        inc_spec = inc.get("specificDates", [])
+        includes = inc_days + inc_month + inc_spec
+
+        # Exclude Dates
+        excl = sched.get("excludeDates", {})
+        excludes = []
+        if excl.get("lastDayOfMonth"):
+            excludes.append("Last day of month")
+        excludes += parse_recurring_days(excl.get("recurringDaysOfWeek", []), is_week=True)
+        excludes += parse_recurring_days(excl.get("recurringDaysOfMonth", []), is_week=False)
+        excludes += excl.get("specificDates", [])
+
+        simplified.append({
+            "name": name,
+            "type": btype,
+            "frequency_days": freq_days,
+            "retention": retention,
+            "storage": storage,
+            "windows": windows,
+            "includes": includes,
+            "excludes": excludes,
+            "acceleratorForcedRescan": sched.get("acceleratorForcedRescan", False),
+            "mediaMultiplexing": sched.get("mediaMultiplexing"),
+            "retriesAllowedAfterRunDay": sched.get("retriesAllowedAfterRunDay"),
+            "syntheticBackup": sched.get("syntheticBackup"),
+        })
+
+        # Build summary
+        win_desc = "; ".join(f"{w['dayName']} at {w['startHour']}h for {w['durationHours']}h"
+                             for w in windows) or "no active window"
+        inc_desc = f" Includes: {', '.join(includes)}." if includes else ""
+        excl_desc = f" Excludes: {', '.join(excludes)}." if excludes else ""
+        acc_desc = " with accelerator forced rescan" if sched.get("acceleratorForcedRescan") else ""
+        retry_desc = " retries allowed on next day." if sched.get("retriesAllowedAfterRunDay") else ""
+        synth_desc = " (synthetic)" if sched.get("syntheticBackup") else ""
+        mux_desc = f" Multiplexing: {sched.get('mediaMultiplexing')}." if sched.get("mediaMultiplexing") else ""
+
+        summary = (
+            f"Schedule '{name}' is a {btype.lower()}{synth_desc} every {freq_days} days, "
+            f"stored on {storage} with retention {retention}{acc_desc}.{mux_desc}"
+            f" Runs: {win_desc}.{inc_desc}{excl_desc}{retry_desc}"
+        )
+        summaries.append(summary)
+
+    return {"simplified": simplified, "summaries": summaries}
+
+
+# Usage example
+schedules = [ ... ]  # ton input ici
+result = simplify_schedules(schedules)
+print(json.dumps(result, indent=2))
+
+
 
 import json
 print(json.dumps(simplify_schedules(schedule_json), indent=2))
